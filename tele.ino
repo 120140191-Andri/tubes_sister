@@ -1,11 +1,17 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <UniversalTelegramBot.h>   // Universal Telegram Bot Library written by Brian Lough: https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot
+#include <UniversalTelegramBot.h>
 #include <ArduinoJson.h> 
 #include <Wire.h>
+#include "DHT.h"
+#include <MQ2.h>
+#include <LiquidCrystal_I2C.h>
+#include <FirebaseESP32.h>
+
 // Replace with your network credentials
 const char* ssid = "!yesn'ts";
 const char* password = ""; 
+
 // Initialize Telegram BOT
 #define BOTtoken "5905728552:AAH9nEa6pE7dCt8RLHPC4qqZq-tQ6XFvsQY"  // your Bot Token (Get from Botfather)
  
@@ -16,29 +22,40 @@ UniversalTelegramBot bot(BOTtoken, client);
 int botRequestDelay = 1000;
 unsigned long lastTimeBotRan;
 
-//////
-#include "DHT.h"
+//sensor kelembapan
 #define DHTPIN 4
 
 #define DHTTYPE DHT11
 
 DHT dht(DHTPIN, DHTTYPE);
 
-float t;
+float tempratur;
 
-// sensor mq
-#include "MQ135.h"
-#define PIN_MQ135 39
+//sensor udara
+#define PIN_MQ2 39
+MQ2 mq2(PIN_MQ2);
 float air_quality;
 
-// LCD
-#include <LiquidCrystal_I2C.h>
+//LCD
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // Kipas
 #define kipas 2
 
+//subcribe
 bool sub = true;
+
+// Firebase
+#define FIREBASE_HOST "https://tubessister-bfe9e-default-rtdb.asia-southeast1.firebasedatabase.app/"
+#define FIREBASE_Authorization_key "AIzaSyDdLJ14AhGq7NRK2WmX_8u8Xlj05RW-MwY"
+
+FirebaseData firebaseData;
+FirebaseJson json;
+FirebaseData fbdo;
+
+//Parameter
+float suhu_param;
+float asap_param;
 
 void kirimPesan(String pesan){
   String chat_id = "979590752";
@@ -48,27 +65,20 @@ void kirimPesan(String pesan){
 void tampilLCD(){
   lcd.clear(); 
   lcd.setCursor(0, 0);
-  lcd.print(air_quality);
-  lcd.setCursor(2, 1);
-  lcd.print(t);
+  lcd.print("Kadar Asap: " + String(air_quality));
+  lcd.setCursor(2, 0);
+  lcd.print("Temprature: " + String(tempratur));
 }
 
 void bacaSensorMQ(){
 
-  MQ135 gasSensor = MQ135(PIN_MQ135);
-  air_quality = gasSensor.getPPM();
-  float RS = gasSensor.getResistance();
-  float R0 = gasSensor.getRZero();
-  float AQ = analogRead(PIN_MQ135);
-  delay(100);
+  air_quality = mq2.readSmoke();
 
-  int ppmval = RS/R0;
+  Serial.println("kualitas udara: " + String(air_quality));
 
-  Serial.println(air_quality);
-
-  if(air_quality > 0){
+  if(air_quality > asap_param){
     if(sub){
-      // kirimPesan("udara kotor");
+      kirimPesan("udara kotor");
     }
     digitalWrite(kipas, HIGH);
   }else{
@@ -82,43 +92,17 @@ void bacaSensorMQ(){
 void bacaSensorDHT(){
   //  sensor kelembapan
  
-   float h = dht.readHumidity();
-    // Read temperature as Celsius (the default)
-    t = dht.readTemperature();
-    // Read temperature as Fahrenheit (isFahrenheit = true)
-    float f = dht.readTemperature(true);
+  tempratur = dht.readTemperature();
 
-    // Check if any reads failed and exit early (to try again).
-    if (isnan(h) || isnan(t) || isnan(f)) {
-      Serial.println(F("Failed to read from DHT sensor!"));
-      return;
-    }
+  Serial.println("Temprature: " + String(tempratur));
 
-    // Compute heat index in Fahrenheit (the default)
-    float hif = dht.computeHeatIndex(f, h);
-    // Compute heat index in Celsius (isFahreheit = false)
-    float hic = dht.computeHeatIndex(t, h, false);
-
-    Serial.print(F("Humidity: "));
-    Serial.print(h);
-    Serial.print(F("%  Temperature: "));
-    Serial.print(t);
-    Serial.print(F("°C "));
-    Serial.print(f);
-    Serial.print(F("°F  Heat index: "));
-    Serial.print(hic);
-    Serial.print(F("°C "));
-    Serial.print(hif);
-    Serial.println(F("°F"));
-
-    if(t >= 30){
-      digitalWrite(kipas, LOW);
-    }else{
-      digitalWrite(kipas, HIGH);
-    }
+  if(tempratur >= suhu_param){
+    digitalWrite(kipas, LOW);
+  }else{
+    digitalWrite(kipas, HIGH);
+  }
 }
  
-// Handle what happens when you receive new messages
 void bacaPesan(int numNewMessages) {
  
  Serial.println("bacaPesan");
@@ -133,24 +117,6 @@ void bacaPesan(int numNewMessages) {
    Serial.println(text);
  
    String from_name = bot.messages[i].from_name;
- 
-   if (text == "/start") {
-     String welcome = "Welcome, " + from_name + ".\n";
-     welcome += "Use the following commands to control your outputs.\n\n";
-     welcome += "/led_on to turn GPIO ON \n";
-     welcome += "/led_off to turn GPIO OFF \n";
-     welcome += "/state to request current GPIO state \n";
-     welcome += "/option to return the reply keyboard \n";
-     bot.sendMessage(chat_id, welcome, "");
-   }
- 
-   if (text == "led_on") {
-     bot.sendMessage(chat_id, "LED state set to ON", "");
-   }
- 
-   if (text == "led_off") {
-     bot.sendMessage(chat_id, "LED state set to OFF", "");
-   }
 
    if (text == "sub") {
      
@@ -165,16 +131,10 @@ void bacaPesan(int numNewMessages) {
    }
 
    if (text == "nyalain kipas") {
-     
-    //  nyalain kipas
-    delay(30000);
-     
+      //  nyalain kipas
+      delay(30000);  
    }
- 
-   if (text == "/option") {
-     String keyboardJson = "[[\"/led_on\", \"/led_off\"],[\"/state\"]]";
-     bot.sendMessageWithReplyKeyboard(chat_id, "Choose one of the following options", "", keyboardJson, true);
-   }
+   
  }
 }
  
@@ -197,16 +157,27 @@ void setup() {
  Serial.println();
  // Print ESP32 Local IP Address
  Serial.println(WiFi.localIP());
+
+ Firebase.begin(FIREBASE_HOST,FIREBASE_Authorization_key);
  
  lcd.begin();
  lcd.backlight();
-
  lcd.clear();
 
+ mq2.begin();
  pinMode(kipas, OUTPUT);
 }
  
 void loop() {
+
+ if (Firebase.ready())
+ {
+    String hsl_suhu = Firebase.RTDB.getFloat(&fbdo, F("/Parameter/suhu")) ? String(fbdo.to<float>()).c_str() : fbdo.errorReason().c_str();
+    suhu_param = hsl_suhu.toFloat();
+    
+    String hsl_asap = Firebase.RTDB.getFloat(&fbdo, F("/Parameter/asap")) ? String(fbdo.to<float>()).c_str() : fbdo.errorReason().c_str();
+    asap_param = hsl_asap.toFloat();
+ }
 
  if (millis() > lastTimeBotRan + botRequestDelay)  {
    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
