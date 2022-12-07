@@ -35,6 +35,9 @@ float air_quality;
 #include <LiquidCrystal_I2C.h>
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
+// Kipas
+#define kipas 2
+
 bool sub = true;
 
 void kirimPesan(String pesan){
@@ -63,10 +66,13 @@ void bacaSensorMQ(){
 
   Serial.println(air_quality);
 
-  if(air_quality >= 300){
+  if(air_quality > 0){
     if(sub){
       // kirimPesan("udara kotor");
     }
+    digitalWrite(kipas, HIGH);
+  }else{
+    digitalWrite(kipas, LOW);
   }
 
   delay(100);
@@ -104,6 +110,12 @@ void bacaSensorDHT(){
     Serial.print(F("°C "));
     Serial.print(hif);
     Serial.println(F("°F"));
+
+    if(t >= 30){
+      digitalWrite(kipas, LOW);
+    }else{
+      digitalWrite(kipas, HIGH);
+    }
 }
  
 // Handle what happens when you receive new messages
@@ -190,6 +202,8 @@ void setup() {
  lcd.backlight();
 
  lcd.clear();
+
+ pinMode(kipas, OUTPUT);
 }
  
 void loop() {
