@@ -30,7 +30,7 @@ float temperature;
 float humidity;
 //sensor udara
 #define PIN_MQ2 39
-MQ2 mq2(PIN_MQ2);
+// MQ2 mq2(PIN_MQ2);
 float smoke_conc;
 
 //LCD
@@ -38,6 +38,9 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // relay_kipas
 #define relay_kipas 2
+
+// sensor sentuh
+#define sensor_sentuh 17
 
 //subcribe
 bool sub = true;
@@ -54,7 +57,7 @@ FirebaseData fbdo;
 float threshold_suhu;
 float threshold_asap;
 //cek ini kalo 60% dia 0,6 apa 60
-const float threshold_lembab = 60;
+float threshold_lembab;
 
 void kirimPesan(String pesan){
   String chat_id = "979590752";
@@ -65,20 +68,22 @@ void tampilLCD(){
   lcd.clear(); 
   lcd.setCursor(0, 0);
   lcd.print("Kadar Asap: " + String(smoke_conc));
-  lcd.setCursor(2, 0);
-  lcd.print("temperaturee: " + String(temperature));
+  lcd.setCursor(0, 1);
+  lcd.print( String(temperature) + " C | " + humidity + "%" );
 }
 
 void bacaSensorMQ(){
 
-  smoke_conc = mq2.readSmoke();
+  // smoke_conc = mq2.readSmoke();
+  smoke_conc = analogRead(PIN_MQ2);
 
-  Serial.println("kualitas udara: " + String(smoke_conc));
+  Serial.println(smoke_conc);
 
   if(smoke_conc > threshold_asap){
     if(sub){
       kirimPesan("Udara Kotor! Kipas akan Dinyalakan");
     }
+    Serial.println("asap nyentuh");
     digitalWrite(relay_kipas, HIGH);
   }else{
     digitalWrite(relay_kipas, LOW);
@@ -92,15 +97,19 @@ void bacaSensorDHT(){
   //  sensor kelembapan
  
   temperature = dht.readTemperature();
-  humidity=dht.readHumidity();
+  humidity = dht.readHumidity();
   Serial.println("temperaturee: " + String(temperature));
+  Serial.println("kelembapan: " + String(humidity));
 
   if(temperature >= threshold_suhu){
+    Serial.println("suhu nyentuh");
     digitalWrite(relay_kipas, LOW);
   }else{
     digitalWrite(relay_kipas, HIGH);
   }
+
   if(humidity >= threshold_lembab){
+    Serial.println("lembap nyentuh");
     digitalWrite(relay_kipas, LOW);
   }else{
     digitalWrite(relay_kipas, HIGH);
@@ -123,13 +132,13 @@ void bacaPesan(int numNewMessages) {
    String from_name = bot.messages[i].from_name;
 
    if (text == "sub") {
-     
-     sub = !sub;
 
      if(sub){
-       bot.sendMessage(chat_id, "Langganan diaktifkan", "");
-     }else{
+       sub = false;
        bot.sendMessage(chat_id, "Langganan dimatikan", "");
+     }else{
+       sub = true;
+       bot.sendMessage(chat_id, "Langganan diaktifkan", "");
      }
      
    }
@@ -141,6 +150,20 @@ void bacaPesan(int numNewMessages) {
    }
    
  }
+}
+
+void cekSentuh()
+{
+  bool sentuh = digitalRead(sensor_sentuh);
+
+  if(sentuh){
+    Serial.println("sentuh");
+    digitalWrite(relay_kipas,LOW);
+    delay(30000);  
+    digitalWrite(relay_kipas,HIGH);
+  }else{
+    Serial.println("Enggak sentuh");
+  }
 }
  
 void setup() {
@@ -169,8 +192,9 @@ void setup() {
  lcd.backlight();
  lcd.clear();
 
- mq2.begin();
+//  mq2.begin();
  pinMode(relay_kipas, OUTPUT);
+ pinMode(sensor_sentuh, INPUT);
 }
  
 void loop() {
@@ -182,6 +206,9 @@ void loop() {
     
     String hsl_asap = Firebase.RTDB.getFloat(&fbdo, F("/Parameter/asap")) ? String(fbdo.to<float>()).c_str() : fbdo.errorReason().c_str();
     threshold_asap = hsl_asap.toFloat();
+
+    String hsl_lembab = Firebase.RTDB.getFloat(&fbdo, F("/Parameter/lembab")) ? String(fbdo.to<float>()).c_str() : fbdo.errorReason().c_str();
+    threshold_lembab = hsl_lembab.toFloat();
  }
 
  if (millis() > lastTimeBotRan + botRequestDelay)  {
@@ -199,5 +226,6 @@ void loop() {
  bacaSensorMQ();
  bacaSensorDHT();
  tampilLCD();
+ cekSentuh();
 
 }
