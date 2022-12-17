@@ -9,11 +9,11 @@
 #include <FirebaseESP32.h>
 
 // Replace with your network credentials
-const char* ssid = "!yesn'ts";
-const char* password = ""; 
+const char* ssid = "SSID ESP";
+const char* password = "tubescepek"; 
 
 // Initialize Telegram BOT
-#define BOTtoken "5905728552:AAH9nEa6pE7dCt8RLHPC4qqZq-tQ6XFvsQY"  // your Bot Token (Get from Botfather)
+#define BOTtoken "5909903186:AAFH2Q0ufXh_QxO9yG4tfBGd2Q3wi7NPvOw"  // your Bot Token (Get from Botfather)
  
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
@@ -30,7 +30,7 @@ float temperature;
 float humidity;
 //sensor udara
 #define PIN_MQ2 39
-// MQ2 mq2(PIN_MQ2);
+MQ2 mq2(PIN_MQ2);
 float smoke_conc;
 
 //LCD
@@ -60,7 +60,7 @@ float threshold_asap;
 float threshold_lembab;
 
 void kirimPesan(String pesan){
-  String chat_id = "979590752";
+  String chat_id = "1921846580";
   bot.sendMessage(chat_id, String(pesan), "");
 }
 
@@ -70,18 +70,12 @@ void tampilLCD(){
   lcd.print("Kadar Asap: " + String(smoke_conc));
   lcd.setCursor(0, 1);
   lcd.print( String(temperature) + " C | " + humidity + "%" );
-
-  String psn = "Kadar asap: " + String(smoke_conc) + " Temprature: " + String(temperature) + "Kelembapan: " humidity + "%";
-
-  if(sub){
-    kirimPesan(psn);
-  }
 }
 
 void bacaSensorMQ(){
 
-  // smoke_conc = mq2.readSmoke();
-  smoke_conc = analogRead(PIN_MQ2);
+  smoke_conc = mq2.readSmoke();
+  // smoke_conc = analogRead(PIN_MQ2);
 
   Serial.println(smoke_conc);
 
@@ -104,7 +98,7 @@ void bacaSensorDHT(){
  
   temperature = dht.readTemperature();
   humidity = dht.readHumidity();
-  Serial.println("temperaturee: " + String(temperature));
+  Serial.println("temperature: " + String(temperature));
   Serial.println("kelembapan: " + String(humidity));
 
   if(temperature >= threshold_suhu){
@@ -121,7 +115,24 @@ void bacaSensorDHT(){
     digitalWrite(relay_kipas, HIGH);
   }
 }
- 
+
+void subscribe(){
+  bool sentuh = digitalRead(sensor_sentuh);
+  temperature = dht.readTemperature();
+  humidity = dht.readHumidity();
+  long smoke_conc = mq2.readSmoke();
+
+  if (sub){
+    String message="";
+    message+="Informasi Langganan : \n";
+    message+="Suhu Ruangan : "+String(temperature)+" degC \n";
+    message+="Kelembaban Ruangan : "+String(humidity)+" % \n";
+    message+="Kadar Asap : "+String(smoke_conc)+"ppm \n";
+    message+="\n Jaga Ruangan Anda Tetap Sehat dengan KacangTech!";
+    kirimPesan(message);
+  }
+}
+
 void bacaPesan(int numNewMessages) {
  
  Serial.println("bacaPesan");
@@ -174,8 +185,8 @@ void cekSentuh()
  
 void setup() {
  Serial.begin(115200);
- 
  // Connect to Wi-Fi
+ WiFi.disconnect();
  WiFi.begin(ssid, password);
  client.setCACert(TELEGRAM_CERTIFICATE_ROOT); // Add root certificate for api.telegram.org
  Serial.print("Connecting to WiFi");
@@ -187,6 +198,8 @@ void setup() {
    Serial.print(".");
    lcd.setCursor(2, 1);
    lcd.print(".");
+  //  WiFi.disconnect();
+  //  WiFi.reconnect();
  }
  Serial.println();
  // Print ESP32 Local IP Address
@@ -194,17 +207,18 @@ void setup() {
 
  Firebase.begin(FIREBASE_HOST,FIREBASE_Authorization_key);
  
- lcd.begin();
+ lcd.init();
  lcd.backlight();
  lcd.clear();
 
-//  mq2.begin();
+ mq2.begin();
  pinMode(relay_kipas, OUTPUT);
  pinMode(sensor_sentuh, INPUT);
 }
  
 void loop() {
 
+ float* values = mq2.read(true);
  if (Firebase.ready())
  {
     String hsl_suhu = Firebase.RTDB.getFloat(&fbdo, F("/Parameter/suhu")) ? String(fbdo.to<float>()).c_str() : fbdo.errorReason().c_str();
@@ -233,5 +247,6 @@ void loop() {
  bacaSensorDHT();
  tampilLCD();
  cekSentuh();
+ subscribe();
 
 }
